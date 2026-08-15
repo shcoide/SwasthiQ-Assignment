@@ -5,6 +5,14 @@ compute a deterministic end-of-day reconciliation and analytics, then generate
 an LLM narrative summary that is verified against those deterministic numbers
 before it's ever shown to a user.
 
+## Deployment status
+
+There is no live-hosted link yet — given the time constraint on this
+assignment, deployment wasn't completed in time. It's in progress and this
+README will be updated with the live URL once it's up. Until then, the
+project is fully runnable and testable locally — see [Run & test it
+locally](#run--test-it-locally) below.
+
 ## Architecture
 
 ```
@@ -139,12 +147,12 @@ API (model `claude-sonnet-4-6`). The flow:
 without any network access (see `tests/test_narrative.py`) — including a test
 that a fabricated/untraceable number is rejected.
 
-## Running it
+## Run & test it locally
 
-Requires `ANTHROPIC_API_KEY` in the environment for the narrative endpoint
-(reconciliation and analytics work without it).
+Requires Python 3.11+, Node 18+, and `ANTHROPIC_API_KEY` in the environment
+for the narrative endpoint (reconciliation and analytics work without it).
 
-### Backend
+### 1. Start the backend
 
 ```sh
 cd backend
@@ -155,9 +163,21 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Storage is SQLite, created automatically at `backend/data/clinic_billing.db`
-on first write.
+on first write. Leave this running in its own terminal.
 
-### Frontend
+**Verify it's up**, in a second terminal:
+
+```sh
+curl -s http://localhost:8000/docs -o /dev/null -w "%{http_code}\n"   # should print 200
+```
+
+Interactive API docs (Swagger UI) are at `http://localhost:8000/docs` — you
+can POST a billing log and hit the `GET` endpoints directly from there
+without touching the frontend.
+
+### 2. Start the frontend
+
+In a separate terminal (backend keeps running):
 
 ```sh
 cd frontend
@@ -171,16 +191,34 @@ Opens on `http://localhost:5173`, talking to the backend at
 Use the "Upload billing log (JSON)" button in the top bar to POST a day's
 billing log (a JSON array matching the input schema above) straight from the
 browser — it also sets the clinic/date selectors to whatever was ingested.
+From there, click through Reconciliation → Analytics → AI Narrative in the
+sidebar to see each screen populate.
 
-### Tests
+### 3. Run the backend test suite
 
 ```sh
 cd backend
-source .venv/bin/activate
+source .venv/bin/activate   # if not already active
 pytest tests/ -v
 ```
 
 Covers: reconciliation and analytics on non-happy-path days (malformed row,
 refund, partial payment, zero-visit day), row-indexed validation errors, and
 the narrative traceability validator — including that it rejects an
-untraceable number.
+untraceable number. These run fully offline; no `ANTHROPIC_API_KEY` needed.
+
+### 4. (Optional) Smoke-test the API end to end with curl
+
+With the backend running from step 1:
+
+```sh
+curl -X POST http://localhost:8000/api/billing-log \
+  -H "Content-Type: application/json" \
+  -d '[{"clinic_id":"clinic-1","visit_id":"v1","timestamp":"2026-08-15T09:00:00Z",
+       "doctor_id":"d1","line_items":[{"drug_name":"Paracetamol","qty":2,"unit_price_paise":5000}],
+       "payment_mode":"cash","amount_paid_paise":10000,"discount_paise":0,"is_refund":false}]'
+
+curl http://localhost:8000/api/reconciliation/clinic-1/2026-08-15
+curl http://localhost:8000/api/analytics/clinic-1/2026-08-15
+curl http://localhost:8000/api/narrative/clinic-1/2026-08-15   # needs ANTHROPIC_API_KEY
+```
